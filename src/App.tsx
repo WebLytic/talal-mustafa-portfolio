@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useState } from 'react'
 
 type Project = {
   name: string
@@ -32,6 +32,7 @@ const projects: Project[] = [
   {
     name: 'Repar2Guard',
     domain: 'repar2guard.com',
+    imageName: 'Repar2Guard',
     industry: 'Industrial Safety',
     summary:
       'Industrial safety website with product documentation and inquiry-focused conversion paths.',
@@ -117,6 +118,7 @@ const projects: Project[] = [
   {
     name: 'Turbo Group',
     domain: 'turbogroup.it',
+    imageName: 'TurboGroup',
     industry: 'Industrial Services',
     summary: 'Engineering services website highlighting projects, expertise, and contact pathways.',
     stack: ['WordPress', 'Corporate UI', 'Lead Forms'],
@@ -191,6 +193,7 @@ const projects: Project[] = [
   {
     name: 'Autolavaggio Luisa',
     domain: 'autolavaggioluisa.com',
+    imageName: 'AutolavaggioLuisa',
     industry: 'Automotive Services',
     summary: 'Local business website designed around visibility, service clarity, and direct contact.',
     stack: ['WordPress', 'Local SEO', 'Mobile-first UI'],
@@ -240,15 +243,6 @@ const projects: Project[] = [
   },
 ]
 
-async function imageExists(url: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const img = new Image()
-    img.onload = () => resolve(true)
-    img.onerror = () => resolve(false)
-    img.src = url
-  })
-}
-
 function getImageCandidates(project: Project): string[] {
   const baseDomain = project.domain.replace(/^www\./, '').replace(/\.[^.]+$/, '')
 
@@ -261,56 +255,19 @@ function getImageCandidates(project: Project): string[] {
   return uniqueNames.flatMap((name) => [`/${name}.png`, `/projects/${name}.png`])
 }
 
+function getPrimaryPreviewPath(project: Project): string {
+  return getImageCandidates(project)[0]
+}
+
 export function App() {
-  const [imageMap, setImageMap] = useState<Record<string, string>>({})
-  const [isResolvingImages, setIsResolvingImages] = useState(true)
+  const [previewFailed, setPreviewFailed] = useState<Record<string, boolean>>({})
 
-  useEffect(() => {
-    let active = true
-
-    const resolveImages = async () => {
-      const resolved = await Promise.all(
-        projects.map(async (project) => {
-          const candidates = getImageCandidates(project)
-
-          for (const path of candidates) {
-            if (await imageExists(path)) {
-              return [project.domain, path] as const
-            }
-          }
-
-          return null
-        }),
-      )
-
-      if (!active) {
-        return
-      }
-
-      const map: Record<string, string> = {}
-      for (const entry of resolved) {
-        if (entry) {
-          map[entry[0]] = entry[1]
-        }
-      }
-
-      setImageMap(map)
-      setIsResolvingImages(false)
-    }
-
-    resolveImages()
-
-    return () => {
-      active = false
-    }
+  const markPreviewFailed = useCallback((domain: string) => {
+    setPreviewFailed((prev) => (prev[domain] ? prev : { ...prev, [domain]: true }))
   }, [])
 
-  const visibleProjects = useMemo(
-    () => projects.filter((project) => Boolean(imageMap[project.domain])),
-    [imageMap],
-  )
-  const featuredProject = visibleProjects[0]
-  const remainingProjects = visibleProjects.slice(1)
+  const featuredProject = projects[0]
+  const remainingProjects = projects.slice(1)
 
   return (
     <div className="min-h-screen scroll-smooth bg-gradient-to-b from-slate-100 to-slate-50 text-slate-900">
@@ -363,21 +320,8 @@ export function App() {
         <section id="projects" className="space-y-5">
           <div className="space-y-1">
             <h2 className="text-2xl font-semibold md:text-3xl">Project Portfolio</h2>
-            <p className="text-slate-600">Showcasing live websites with verified visual previews.</p>
+            <p className="text-slate-600">Showcasing live websites with visual previews.</p>
           </div>
-
-          {isResolvingImages ? (
-            <p className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
-              Loading projects...
-            </p>
-          ) : null}
-
-          {!isResolvingImages && visibleProjects.length === 0 ? (
-            <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 shadow-sm">
-              No project images were found. Add files like `ascent.png` in `public/` or
-              `public/projects/`.
-            </p>
-          ) : null}
 
           {featuredProject ? (
             <a
@@ -388,12 +332,24 @@ export function App() {
             >
               <div className="grid gap-5 md:grid-cols-[1.15fr_1fr] md:gap-6">
                 <div className="relative overflow-hidden rounded-2xl border border-slate-200">
-                  <img
-                    src={imageMap[featuredProject.domain]}
-                    alt={`${featuredProject.name} website preview`}
-                    className="h-56 w-full object-cover transition duration-300 ease-out group-hover:scale-[1.02] sm:h-64 md:h-full"
-                    loading="lazy"
-                  />
+                  {previewFailed[featuredProject.domain] ? (
+                    <div
+                      className="flex h-56 w-full items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 text-sm font-medium text-slate-500 sm:h-64 md:h-full md:min-h-[280px]"
+                      aria-hidden="true"
+                    >
+                      Preview unavailable
+                    </div>
+                  ) : (
+                    <img
+                      src={getPrimaryPreviewPath(featuredProject)}
+                      alt={`${featuredProject.name} website preview`}
+                      className="h-56 w-full object-cover transition duration-300 ease-out group-hover:scale-[1.02] sm:h-64 md:h-full"
+                      loading="eager"
+                      fetchPriority="high"
+                      decoding="async"
+                      onError={() => markPreviewFailed(featuredProject.domain)}
+                    />
+                  )}
                   <span className="absolute right-3 top-3 rounded-full bg-black/80 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white">
                     Featured
                   </span>
@@ -441,12 +397,23 @@ export function App() {
                 className="group block overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition duration-300 ease-out hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/30"
               >
                 <div className="relative mb-4 overflow-hidden rounded-xl border border-slate-200">
-                  <img
-                    src={imageMap[project.domain]}
-                    alt={`${project.name} website preview`}
-                    className="h-48 w-full object-cover transition duration-300 ease-out group-hover:scale-[1.03] sm:h-52"
-                    loading="lazy"
-                  />
+                  {previewFailed[project.domain] ? (
+                    <div
+                      className="flex h-48 w-full items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 text-xs font-medium text-slate-500 sm:h-52"
+                      aria-hidden="true"
+                    >
+                      Preview unavailable
+                    </div>
+                  ) : (
+                    <img
+                      src={getPrimaryPreviewPath(project)}
+                      alt={`${project.name} website preview`}
+                      className="h-48 w-full object-cover transition duration-300 ease-out group-hover:scale-[1.03] sm:h-52"
+                      loading="lazy"
+                      decoding="async"
+                      onError={() => markPreviewFailed(project.domain)}
+                    />
+                  )}
                   <span className="absolute right-3 top-3 rounded-full bg-black/80 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white">
                     Live
                   </span>
